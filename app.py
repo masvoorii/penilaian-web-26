@@ -33,18 +33,12 @@ def perbaiki_nim(nim_val):
     if n.startswith('304'): n = '0' + n
     return n
 
-# Baca Database
 df = pd.read_csv(FILE_CSV)
 
-# =======================================================
-# AUTO-FIX ERROR PANDAS (TYPEERROR & MISMATCH COLUMN)
-# =======================================================
-# 1. Tambahkan kolom jika CSV yang terbaca adalah versi lama
 for col in COLUMNS:
     if col not in df.columns:
         df[col] = ""
 
-# 2. Paksa kolom teks menjadi tipe 'string' (object) agar Pandas tidak mengira itu angka
 kolom_teks = ["NIM", "Nama", "Kelas", "F_Login", "F_CRUD", "F_Edit", "F_Welcome", "F_Register", 
               "Notes", "Img_Login", "Img_CRUD", "Img_Edit", "Img_Welcome", "Img_Register", 
               "Plagiasi", "Keputusan_AI", "Status"]
@@ -52,7 +46,6 @@ kolom_teks = ["NIM", "Nama", "Kelas", "F_Login", "F_CRUD", "F_Edit", "F_Welcome"
 for col in kolom_teks:
     df[col] = df[col].astype(str).replace('nan', '')
 
-# Bersihkan Duplikat & Format NIM
 df['NIM'] = df['NIM'].apply(perbaiki_nim)
 df = df.drop_duplicates(subset=['NIM'], keep='last')
 
@@ -62,7 +55,6 @@ st.title("Sistem Penilaian Web (Mode Kolaborasi)")
 opsi_mutlak = {"Ya (1.0)": 1.0, "Tidak (0.0)": 0.0} 
 opsi_poin = {"Sempurna (1.0)": 1.0, "Sebagian (0.5)": 0.5, "Sedikit (0.25)": 0.25, "Tidak Ada (0.0)": 0.0}
 
-# --- TABS UI ---
 tab1, tab2, tab3, tab4 = st.tabs(["📝 1. Input & Update", "🎯 2. Final Scoring AI", "🗄️ 3. Database", "🖼️ 4. Galeri Screenshot"])
 
 # ==========================================
@@ -106,13 +98,24 @@ with tab1:
             st.subheader("Catatan & Screenshot (Upload sesuai tipe)")
             notes_asdos = st.text_area("Catatan/Notes Asdos:", value=def_notes)
             
-            st.write("Jika sebelumnya sudah upload, biarkan kosong agar gambar lama tidak tertimpa.")
+            st.write("Jika ingin mengganti, langsung upload gambar baru. Jika ingin menghapus total, centang '🗑️ Hapus foto lama'.")
+            
+            # Fungsi untuk render form upload beserta tombol hapus jika sudah ada file
+            def render_uploader(col, label, img_type):
+                with col:
+                    up_file = st.file_uploader(label, type=['png', 'jpg', 'jpeg'])
+                    del_flag = False
+                    # Jika data sudah ada dan file gambarnya tersimpan
+                    if is_exist and f'Img_{img_type}' in row and pd.notna(row[f'Img_{img_type}']) and row[f'Img_{img_type}'] != "":
+                        del_flag = st.checkbox(f"🗑️ Hapus foto {label} lama", key=f"del_{img_type}")
+                    return up_file, del_flag
+
             c1, c2, c3, c4, c5 = st.columns(5)
-            with c1: up_login = st.file_uploader("Login", type=['png', 'jpg', 'jpeg'])
-            with c2: up_crud = st.file_uploader("CRUD", type=['png', 'jpg', 'jpeg'])
-            with c3: up_edit = st.file_uploader("Edit Elemen", type=['png', 'jpg', 'jpeg'])
-            with c4: up_welcome = st.file_uploader("Welcome Pg", type=['png', 'jpg', 'jpeg'])
-            with c5: up_register = st.file_uploader("Register", type=['png', 'jpg', 'jpeg'])
+            up_login, del_login = render_uploader(c1, "Login", "Login")
+            up_crud, del_crud = render_uploader(c2, "CRUD", "CRUD")
+            up_edit, del_edit = render_uploader(c3, "Edit Elemen", "Edit")
+            up_welcome, del_welcome = render_uploader(c4, "Welcome Pg", "Welcome")
+            up_register, del_register = render_uploader(c5, "Register", "Register")
             
             submit_draft = st.form_submit_button("Simpan Data (Draft)")
             
@@ -120,23 +123,30 @@ with tab1:
                 if not nama:
                     st.error("Nama wajib diisi!")
                 else:
-                    # Fungsi untuk handle penyimpanan per kategori
-                    def save_img(uploader_file, img_type):
+                    # Fungsi untuk handle penyimpanan & penghapusan per kategori
+                    def save_img(uploader_file, img_type, del_flag):
+                        # Jika ada file baru yang diupload, timpa yang lama
                         if uploader_file:
                             filename = f"{nim_input_str}_{img_type}.jpg"
                             with open(os.path.join(FOLDER_GAMBAR, filename), "wb") as f:
                                 f.write(uploader_file.getbuffer())
                             return filename
-                        # Jika tidak upload baru, ambil data lama jika ada
+                        # Jika dicentang hapus, hapus file dari server & kosongkan dari database
+                        elif del_flag:
+                            old_file = os.path.join(FOLDER_GAMBAR, f"{nim_input_str}_{img_type}.jpg")
+                            if os.path.exists(old_file):
+                                os.remove(old_file) # Bersihkan dari server
+                            return ""
+                        # Jika tidak upload baru dan tidak dicentang hapus, pertahankan yang lama
                         elif is_exist and f'Img_{img_type}' in row and pd.notna(row[f'Img_{img_type}']) and row[f'Img_{img_type}'] != "":
                             return str(row[f'Img_{img_type}'])
                         return ""
 
-                    img_log = save_img(up_login, "Login")
-                    img_crd = save_img(up_crud, "CRUD")
-                    img_edt = save_img(up_edit, "Edit")
-                    img_wel = save_img(up_welcome, "Welcome")
-                    img_reg = save_img(up_register, "Register")
+                    img_log = save_img(up_login, "Login", del_login)
+                    img_crd = save_img(up_crud, "CRUD", del_crud)
+                    img_edt = save_img(up_edit, "Edit", del_edit)
+                    img_wel = save_img(up_welcome, "Welcome", del_welcome)
+                    img_reg = save_img(up_register, "Register", del_register)
                     
                     skor_wajib = opsi_mutlak[f_login] + opsi_mutlak[f_crud] + opsi_mutlak[f_edit]
                     skor_opsional = opsi_poin[f_welcome] + opsi_poin[f_register]
@@ -151,8 +161,7 @@ with tab1:
                     }
                     
                     if is_exist:
-                        for key, val in new_data.items(): 
-                            df.loc[df['NIM'] == nim_input_str, key] = val
+                        for key, val in new_data.items(): df.loc[df['NIM'] == nim_input_str, key] = val
                     else:
                         df = pd.concat([df, pd.DataFrame([new_data])], ignore_index=True)
                         
@@ -173,7 +182,6 @@ with tab2:
         nim_target = nim_final.split(" - ")[0].strip()
         target_data = df_draft[df_draft['NIM'] == nim_target].iloc[0]
         
-        # Kumpulkan semua gambar mahasiswa ini
         student_imgs = [str(target_data[k]) for k in ["Img_Login", "Img_CRUD", "Img_Edit", "Img_Welcome", "Img_Register"] 
                         if pd.notna(target_data[k]) and str(target_data[k]).strip() != ""]
         
@@ -237,7 +245,6 @@ with tab3:
 with tab4:
     st.header("Galeri Screenshot Mahasiswa")
     
-    # Filter Tipe Gambar
     kategori = {"Login": "Img_Login", "CRUD": "Img_CRUD", "Edit Elemen": "Img_Edit", 
                 "Welcome Page": "Img_Welcome", "Register": "Img_Register"}
     

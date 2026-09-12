@@ -6,7 +6,6 @@ import os
 import google.generativeai as genai
 
 # --- KONFIGURASI AI (GEMINI) ---
-# Dapatkan API Key gratis di: https://aistudio.google.com/
 API_KEY = st.secrets["GEMINI_API_KEY"]
 genai.configure(api_key=API_KEY)
 model_ai = genai.GenerativeModel('gemini-1.5-flash')
@@ -19,20 +18,24 @@ if not os.path.exists(FOLDER_GAMBAR):
     os.makedirs(FOLDER_GAMBAR)
 
 if not os.path.exists(FILE_CSV):
-    df_awal = pd.DataFrame(columns=["Nama", "NIM", "Total_Skor", "Plagiasi", "Keputusan_AI", "File_Gambar"])
+    df_awal = pd.DataFrame(columns=["Nama", "NIM", "Kelas", "Total_Skor", "Plagiasi", "Keputusan_AI", "File_Gambar"])
     df_awal.to_csv(FILE_CSV, index=False)
 
 st.set_page_config(page_title="Penilaian Web Angkatan 26", layout="wide")
 st.title("Sistem Penilaian Web (AI Decision & Plagiarism Check)")
 
-# Fungsi Cek Plagiasi
-def cek_plagiasi(gambar_baru):
-    hash_baru = imagehash.phash(Image.open(gambar_baru))
+# Fungsi Cek Plagiasi untuk Multi-Gambar
+def cek_plagiasi(daftar_gambar_upload):
     batas_mirip = 5 
-    for file in os.listdir(FOLDER_GAMBAR):
-        hash_lama = imagehash.phash(Image.open(os.path.join(FOLDER_GAMBAR, file)))
-        if hash_baru - hash_lama <= batas_mirip:
-            return True, file
+    # Looping setiap gambar yang baru diupload
+    for img_upload in daftar_gambar_upload:
+        hash_baru = imagehash.phash(Image.open(img_upload))
+        
+        # Bandingkan dengan semua gambar di database
+        for file in os.listdir(FOLDER_GAMBAR):
+            hash_lama = imagehash.phash(Image.open(os.path.join(FOLDER_GAMBAR, file)))
+            if hash_baru - hash_lama <= batas_mirip:
+                return True, file # Langsung return True jika ada 1 saja yang mirip
     return False, None
 
 # Opsi Bobot Nilai
@@ -45,8 +48,7 @@ with st.form("form_nilai"):
         nama = st.text_input("Nama Mahasiswa")
         nim = st.text_input("NIM")
     with col2:
-        kelas = st.selectbox("Kelas", ["A", "B", "C", "D"])
-        paham_kode = st.radio("Pemahaman Wawancara:", ["Sangat Paham", "Kurang Paham", "Tidak Paham/Nyontek"])
+        kelas = st.selectbox("Kelas", ["A Layo", "B Layo", "A Bukit", "B Bukit"])
 
     st.subheader("2. Penilaian Fitur")
     col_wajib, col_opsional = st.columns(2)
@@ -63,15 +65,18 @@ with st.form("form_nilai"):
 
     st.subheader("3. Catatan Asdos & File")
     notes_asdos = st.text_area("Catatan/Notes Tambahan (Opsional, tapi penting untuk AI):", 
-                               placeholder="Contoh: Tampilan webnya rapi, tapi saat ditanya alur CRUD dia bingung di bagian database...")
-    gambar_upload = st.file_uploader("Upload Screenshot Web", type=['png', 'jpg', 'jpeg'])
+                               placeholder="Contoh: Logika CRUD sudah jalan, tapi tampilan berantakan...")
+    
+    # Fitur Upload Banyak Gambar Sekaligus (accept_multiple_files=True)
+    gambar_uploads = st.file_uploader("Upload Screenshot Web (Bisa pilih/blok banyak gambar sekaligus: Login, Welcome, CRUD, dll)", 
+                                      type=['png', 'jpg', 'jpeg'], accept_multiple_files=True)
     
     submit = st.form_submit_button("Generate AI Decision & Simpan")
 
 # --- PROSES SCORING & AI ---
 if submit:
-    if not (nama and nim and gambar_upload):
-        st.error("Nama, NIM, dan Screenshot wajib diisi!")
+    if not (nama and nim and len(gambar_uploads) > 0):
+        st.error("Nama, NIM, dan minimal 1 Screenshot wajib diisi!")
     else:
         with st.spinner("Sedang memproses gambar dan generate AI Decision..."):
             # Hitung Skor
@@ -80,20 +85,19 @@ if submit:
             total_skor = skor_wajib + skor_opsional
             
             # Cek Plagiasi
-            terindikasi, file_mirip = cek_plagiasi(gambar_upload)
+            terindikasi, file_mirip = cek_plagiasi(gambar_uploads)
             status_plagiasi = f"TERDETEKSI (Mirip dgn {file_mirip})" if terindikasi else "AMAN"
 
-            # Buat Prompt untuk AI
+            # Buat Prompt untuk AI (Tanpa Wawancara)
             prompt = f"""
             Kamu adalah asisten dosen. Berikan keputusan singkat (1-2 paragraf) apakah mahasiswa ini Lulus, Lulus dengan Syarat, atau Diskualifikasi dari tugas Web.
             Data Mahasiswa:
             - Skor Fitur Wajib (Max 3): {skor_wajib}
             - Skor Fitur Opsional (Max 2): {skor_opsional}
-            - Pemahaman Wawancara: {paham_kode}
             - Indikasi Plagiasi UI: {status_plagiasi}
-            - Catatan Asdos saat Wawancara: {notes_asdos}
+            - Catatan Asdos: {notes_asdos}
             
-            Aturan: Jika terdeteksi plagiasi ATAU tidak paham saat wawancara, wajib berikan sanksi tegas/diskualifikasi. Jelaskan alasannya berdasarkan data di atas.
+            Aturan: Jika terdeteksi plagiasi, wajib berikan sanksi tegas/diskualifikasi. Jelaskan alasannya berdasarkan data di atas dan pertimbangkan catatan asdos.
             """
             
             # Panggil Gemini AI
@@ -101,29 +105,35 @@ if submit:
                 respon_ai = model_ai.generate_content(prompt)
                 keputusan_ai = respon_ai.text
             except Exception as e:
-                keputusan_ai = "Gagal memuat AI Decision. Periksa API Key."
+                keputusan_ai = "Gagal memuat AI Decision."
 
             # Tampilkan Hasil AI
             st.write("### 🤖 Hasil Keputusan AI")
             if terindikasi:
-                st.error(f"⚠️ PLAGIASI UI TERDETEKSI: Tampilan mirip dengan {file_mirip}")
+                st.error(f"⚠️ PLAGIASI UI TERDETEKSI: Terdapat screenshot yang mirip dengan tugas {file_mirip}")
             st.info(keputusan_ai)
 
-            # Simpan File Gambar & Database
-            nama_file_baru = f"{nim}_{nama}.jpg"
-            with open(os.path.join(FOLDER_GAMBAR, nama_file_baru), "wb") as f:
-                f.write(gambar_upload.getbuffer())
+            # Simpan File Gambar & Database (Dilakukan Looping karena gambarnya banyak)
+            nama_file_tersimpan = []
+            for i, img in enumerate(gambar_uploads):
+                nama_file_baru = f"{nim}_{nama}_pic{i+1}.jpg"
+                with open(os.path.join(FOLDER_GAMBAR, nama_file_baru), "wb") as f:
+                    f.write(img.getbuffer())
+                nama_file_tersimpan.append(nama_file_baru)
+            
+            # Gabungkan nama file gambar jadi satu teks untuk disimpan ke Excel/CSV
+            file_gambar_str = ", ".join(nama_file_tersimpan)
                 
             df = pd.read_csv(FILE_CSV)
             data_baru = pd.DataFrame([{
-                "Nama": nama, "NIM": nim, "Total_Skor": total_skor, 
-                "Plagiasi": status_plagiasi, "Keputusan_AI": keputusan_ai, "File_Gambar": nama_file_baru
+                "Nama": nama, "NIM": nim, "Kelas": kelas, "Total_Skor": total_skor, 
+                "Plagiasi": status_plagiasi, "Keputusan_AI": keputusan_ai, "File_Gambar": file_gambar_str
             }])
             df = pd.concat([df, data_baru], ignore_index=True)
             df.to_csv(FILE_CSV, index=False)
 
 st.write("### Rekap Nilai Sementara")
-st.dataframe(pd.read_csv(FILE_CSV)[["Nama", "NIM", "Total_Skor", "Plagiasi"]])
+st.dataframe(pd.read_csv(FILE_CSV)[["Nama", "NIM", "Kelas", "Total_Skor", "Plagiasi"]])
 
 # --- TOMBOL DOWNLOAD DATA ---
 st.write("### Backup Data")

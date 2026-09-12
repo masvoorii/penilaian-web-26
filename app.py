@@ -26,9 +26,21 @@ COLUMNS = [
 if not os.path.exists(FILE_CSV):
     pd.DataFrame(columns=COLUMNS).to_csv(FILE_CSV, index=False)
 
-# Baca Database 
+# --- FUNGSI PERBAIKAN NIM (AUTO-HEALING) ---
+def perbaiki_nim(nim_val):
+    n = str(nim_val).strip()
+    # Jika terbaca sebagai desimal (float), hilangkan .0 di belakangnya
+    if n.endswith('.0'): 
+        n = n[:-2]
+    # Jika angka 0 di depan hilang (khas NIM UNSRI 0304 terbaca 304)
+    if n.startswith('304'): 
+        n = '0' + n
+    return n
+
+# Baca Database dan Bersihkan Duplikat
 df = pd.read_csv(FILE_CSV)
-df['NIM'] = df['NIM'].astype(str) # Pastikan NIM berupa teks
+df['NIM'] = df['NIM'].apply(perbaiki_nim) # Paksa format NIM jadi teks utuh
+df = df.drop_duplicates(subset=['NIM'], keep='last') # AUTO-CLEAN: Hapus duplikat yang telanjur masuk
 
 st.set_page_config(page_title="Penilaian Web Angkatan 26", layout="wide")
 st.title("Sistem Penilaian Web (Mode Kolaborasi)")
@@ -45,25 +57,27 @@ tab1, tab2, tab3 = st.tabs(["📝 1. Input & Update Data", "🎯 2. Final Scorin
 # ==========================================
 with tab1:
     st.header("Tambah Data Baru / Update Screenshot")
-    nim_input = st.text_input("🔍 Masukkan NIM Mahasiswa (Untuk mencari data lama atau buat baru):")
+    nim_input = st.text_input("🔍 Masukkan NIM Mahasiswa (Tekan Enter):")
     
     if nim_input:
-        existing_data = df[df['NIM'] == nim_input]
+        nim_input_str = perbaiki_nim(nim_input)
+        
+        existing_data = df[df['NIM'] == nim_input_str]
         is_exist = not existing_data.empty
         
         if is_exist:
-            st.info("✅ Data ditemukan! Anda bisa memperbarui penilaian atau menambahkan screenshot baru (screenshot lama aman).")
+            st.info(f"✅ Data ditemukan! Anda sedang mengupdate data NIM: {nim_input_str}")
             row = existing_data.iloc[0]
-            def_nama = row['Nama']
-            def_kelas = row['Kelas']
-            def_notes = row['Notes'] if pd.notna(row['Notes']) else ""
+            def_nama = str(row['Nama']) if pd.notna(row['Nama']) else ""
+            def_kelas = str(row['Kelas'])
+            def_notes = str(row['Notes']) if pd.notna(row['Notes']) else ""
         else:
-            st.info("✨ Data belum ada. Silakan isi form di bawah sebagai data baru.")
+            st.info(f"✨ Data belum ada. Mendaftarkan NIM baru: {nim_input_str}")
             def_nama = ""
             def_kelas = "A Layo"
             def_notes = ""
             
-        with st.form("form_input"):
+        with st.form("form_input", clear_on_submit=False):
             st.subheader("Identitas")
             nama = st.text_input("Nama Mahasiswa", value=def_nama)
             
@@ -83,40 +97,37 @@ with tab1:
                 f_welcome = st.selectbox("Welcome/Landing Page", list(opsi_poin.keys()))
                 f_register = st.selectbox("Register", list(opsi_poin.keys()))
 
-            st.subheader("Catatan & Screenshot Tambahan")
+            st.subheader("Catatan & Screenshot")
             notes_asdos = st.text_area("Catatan/Notes Asdos:", value=def_notes)
             gambar_uploads = st.file_uploader("Upload Screenshot Baru (Bisa pilih banyak sekaligus)", 
                                               type=['png', 'jpg', 'jpeg'], accept_multiple_files=True)
             
-            submit_draft = st.form_submit_button("Simpan Data Sementara (Draft)")
+            submit_draft = st.form_submit_button("Simpan Data (Draft)")
             
             if submit_draft:
                 if not nama:
                     st.error("Nama wajib diisi!")
                 else:
-                    # Manajemen Gambar
                     saved_files = []
-                    # Ambil gambar lama jika ada
+                    # Ambil gambar lama jika ada supaya tidak hilang
                     if is_exist and pd.notna(row['File_Gambar']) and str(row['File_Gambar']).strip() != "":
                         saved_files = [x.strip() for x in str(row['File_Gambar']).split(',')]
                         
-                    # Simpan gambar baru dan gabungkan dengan yang lama
+                    # Simpan gambar baru
                     for img in gambar_uploads:
-                        img_name = f"{nim_input}_{len(saved_files)+1}.jpg"
+                        img_name = f"{nim_input_str}_{len(saved_files)+1}.jpg"
                         with open(os.path.join(FOLDER_GAMBAR, img_name), "wb") as f:
                             f.write(img.getbuffer())
                         saved_files.append(img_name)
                         
                     file_gambar_str = ", ".join(saved_files)
                     
-                    # Hitung Skor
                     skor_wajib = opsi_mutlak[f_login] + opsi_mutlak[f_crud] + opsi_mutlak[f_edit]
                     skor_opsional = opsi_poin[f_welcome] + opsi_poin[f_register]
                     total_skor = skor_wajib + skor_opsional
                     
-                    # Susun Data Baru
                     new_data = {
-                        "NIM": str(nim_input), "Nama": nama, "Kelas": kelas,
+                        "NIM": nim_input_str, "Nama": nama, "Kelas": kelas,
                         "F_Login": f_login, "F_CRUD": f_crud, "F_Edit": f_edit,
                         "F_Welcome": f_welcome, "F_Register": f_register,
                         "Skor_Wajib": skor_wajib, "Skor_Opsional": skor_opsional, "Total_Skor": total_skor,
@@ -124,16 +135,14 @@ with tab1:
                         "Plagiasi": "-", "Keputusan_AI": "-", "Status": "Draft"
                     }
                     
-                    # Update atau Tambah ke Dataframe
                     if is_exist:
                         for key, val in new_data.items():
-                            df.loc[df['NIM'] == str(nim_input), key] = val
+                            df.loc[df['NIM'] == nim_input_str, key] = val
                     else:
                         df = pd.concat([df, pd.DataFrame([new_data])], ignore_index=True)
                         
                     df.to_csv(FILE_CSV, index=False)
-                    st.success("✅ Data berhasil disimpan sementara! Lanjut ke Tab 2 jika semua screenshot & nilai sudah lengkap.")
-                    st.rerun()
+                    st.success(f"✅ Data {nama} ({nim_input_str}) berhasil disimpan! Silakan cek Tab 3.")
 
 # ==========================================
 # TAB 2: FINAL SCORING & AI
@@ -143,15 +152,15 @@ with tab2:
     df_draft = df[df['Status'] == 'Draft']
     
     if df_draft.empty:
-        st.info("Belum ada mahasiswa berstatus Draft, atau semua data sudah di-Finalisasi.")
+        st.info("Belum ada mahasiswa berstatus Draft yang datanya siap difinalisasi.")
     else:
-        nim_final = st.selectbox("Pilih Mahasiswa yang datanya sudah lengkap:", df_draft['NIM'] + " - " + df_draft['Nama'])
-        nim_target = nim_final.split(" - ")[0]
+        nim_final = st.selectbox("Pilih Mahasiswa:", df_draft['NIM'] + " - " + df_draft['Nama'])
+        nim_target = nim_final.split(" - ")[0].strip()
         
         target_data = df_draft[df_draft['NIM'] == nim_target].iloc[0]
         
-        # Hitung jumlah gambar yang tersimpan
-        student_imgs = [x.strip() for x in str(target_data['File_Gambar']).split(',')] if pd.notna(target_data['File_Gambar']) and str(target_data['File_Gambar']).strip() != '' else []
+        file_gbr = target_data['File_Gambar']
+        student_imgs = [x.strip() for x in str(file_gbr).split(',')] if pd.notna(file_gbr) and str(file_gbr).strip() != '' else []
         
         st.write(f"**Nama:** {target_data['Nama']}")
         st.write(f"**Total Screenshot Tersimpan:** {len(student_imgs)} gambar")
@@ -165,14 +174,13 @@ with tab2:
                     file_mirip = ""
                     batas_mirip = 5
                     
-                    # Logika Cek Plagiasi (Mengabaikan gambar miliknya sendiri)
                     for img_name in student_imgs:
                         target_path = os.path.join(FOLDER_GAMBAR, img_name)
                         if os.path.exists(target_path):
                             hash_baru = imagehash.phash(Image.open(target_path))
                             
                             for all_files in os.listdir(FOLDER_GAMBAR):
-                                if all_files not in student_imgs: # Syarat penting: Jangan cek dengan gambar sendiri
+                                if all_files not in student_imgs: 
                                     file_lama_path = os.path.join(FOLDER_GAMBAR, all_files)
                                     if os.path.exists(file_lama_path):
                                         hash_lama = imagehash.phash(Image.open(file_lama_path))
@@ -184,7 +192,6 @@ with tab2:
                         
                     status_plagiasi = f"TERDETEKSI (Mirip dgn {file_mirip})" if terindikasi else "AMAN"
                     
-                    # Logika Prompt AI
                     prompt = f"""
                     Kamu adalah asisten dosen. Berikan keputusan singkat (1-2 paragraf) apakah mahasiswa ini Lulus, Lulus dengan Syarat, atau Diskualifikasi dari tugas Web.
                     - Skor Fitur Wajib (Max 3): {target_data['Skor_Wajib']}
@@ -203,13 +210,12 @@ with tab2:
                     except Exception as e:
                         keputusan_ai = "Gagal memuat AI Decision."
                         
-                    # Simpan Status Final ke CSV
-                    df.loc[df['NIM'] == str(nim_target), 'Plagiasi'] = status_plagiasi
-                    df.loc[df['NIM'] == str(nim_target), 'Keputusan_AI'] = keputusan_ai
-                    df.loc[df['NIM'] == str(nim_target), 'Status'] = "Final"
+                    df.loc[df['NIM'] == nim_target, 'Plagiasi'] = status_plagiasi
+                    df.loc[df['NIM'] == nim_target, 'Keputusan_AI'] = keputusan_ai
+                    df.loc[df['NIM'] == nim_target, 'Status'] = "Final"
                     df.to_csv(FILE_CSV, index=False)
                     
-                    st.success(f"Final Scoring untuk {target_data['Nama']} Selesai!")
+                    st.success("Final Scoring Selesai!")
                     if terindikasi:
                         st.error(f"⚠️ PLAGIASI UI TERDETEKSI dengan file {file_mirip}")
                     st.info(keputusan_ai)
@@ -219,7 +225,8 @@ with tab2:
 # ==========================================
 with tab3:
     st.header("Database Rekap Nilai")
-    st.dataframe(df[["NIM", "Nama", "Kelas", "Total_Skor", "Plagiasi", "Status"]])
+    # Menampilkan tabel tanpa index bawaan Pandas supaya lebih rapi
+    st.dataframe(df[["NIM", "Nama", "Kelas", "Skor_Wajib", "Skor_Opsional", "Total_Skor", "Plagiasi", "Status"]].reset_index(drop=True))
     
     with open(FILE_CSV, "rb") as file:
         st.download_button(

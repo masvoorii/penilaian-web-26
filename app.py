@@ -19,41 +19,54 @@ if not os.path.exists(FOLDER_GAMBAR):
 
 COLUMNS = [
     "NIM", "Nama", "Kelas", "F_Login", "F_CRUD", "F_Edit", "F_Welcome", "F_Register", 
-    "Skor_Wajib", "Skor_Opsional", "Total_Skor", "Notes", "File_Gambar", 
+    "Skor_Wajib", "Skor_Opsional", "Total_Skor", "Notes", 
+    "Img_Login", "Img_CRUD", "Img_Edit", "Img_Welcome", "Img_Register", 
     "Plagiasi", "Keputusan_AI", "Status"
 ]
 
 if not os.path.exists(FILE_CSV):
     pd.DataFrame(columns=COLUMNS).to_csv(FILE_CSV, index=False)
 
-# --- FUNGSI PERBAIKAN NIM (AUTO-HEALING) ---
 def perbaiki_nim(nim_val):
     n = str(nim_val).strip()
-    # Jika terbaca sebagai desimal (float), hilangkan .0 di belakangnya
-    if n.endswith('.0'): 
-        n = n[:-2]
-    # Jika angka 0 di depan hilang (khas NIM UNSRI 0304 terbaca 304)
-    if n.startswith('304'): 
-        n = '0' + n
+    if n.endswith('.0'): n = n[:-2]
+    if n.startswith('304'): n = '0' + n
     return n
 
-# Baca Database dan Bersihkan Duplikat
+# Baca Database
 df = pd.read_csv(FILE_CSV)
-df['NIM'] = df['NIM'].apply(perbaiki_nim) # Paksa format NIM jadi teks utuh
-df = df.drop_duplicates(subset=['NIM'], keep='last') # AUTO-CLEAN: Hapus duplikat yang telanjur masuk
+
+# =======================================================
+# AUTO-FIX ERROR PANDAS (TYPEERROR & MISMATCH COLUMN)
+# =======================================================
+# 1. Tambahkan kolom jika CSV yang terbaca adalah versi lama
+for col in COLUMNS:
+    if col not in df.columns:
+        df[col] = ""
+
+# 2. Paksa kolom teks menjadi tipe 'string' (object) agar Pandas tidak mengira itu angka
+kolom_teks = ["NIM", "Nama", "Kelas", "F_Login", "F_CRUD", "F_Edit", "F_Welcome", "F_Register", 
+              "Notes", "Img_Login", "Img_CRUD", "Img_Edit", "Img_Welcome", "Img_Register", 
+              "Plagiasi", "Keputusan_AI", "Status"]
+
+for col in kolom_teks:
+    df[col] = df[col].astype(str).replace('nan', '')
+
+# Bersihkan Duplikat & Format NIM
+df['NIM'] = df['NIM'].apply(perbaiki_nim)
+df = df.drop_duplicates(subset=['NIM'], keep='last')
 
 st.set_page_config(page_title="Penilaian Web Angkatan 26", layout="wide")
 st.title("Sistem Penilaian Web (Mode Kolaborasi)")
 
-# --- OPSI BOBOT NILAI ---
 opsi_mutlak = {"Ya (1.0)": 1.0, "Tidak (0.0)": 0.0} 
 opsi_poin = {"Sempurna (1.0)": 1.0, "Sebagian (0.5)": 0.5, "Sedikit (0.25)": 0.25, "Tidak Ada (0.0)": 0.0}
 
 # --- TABS UI ---
-tab1, tab2, tab3 = st.tabs(["📝 1. Input & Update Data", "🎯 2. Final Scoring AI", "🗄️ 3. Database"])
+tab1, tab2, tab3, tab4 = st.tabs(["📝 1. Input & Update", "🎯 2. Final Scoring AI", "🗄️ 3. Database", "🖼️ 4. Galeri Screenshot"])
 
 # ==========================================
-# TAB 1: INPUT & UPDATE (Simpan Sementara)
+# TAB 1: INPUT & UPDATE DATA
 # ==========================================
 with tab1:
     st.header("Tambah Data Baru / Update Screenshot")
@@ -61,46 +74,45 @@ with tab1:
     
     if nim_input:
         nim_input_str = perbaiki_nim(nim_input)
-        
         existing_data = df[df['NIM'] == nim_input_str]
         is_exist = not existing_data.empty
         
         if is_exist:
             st.info(f"✅ Data ditemukan! Anda sedang mengupdate data NIM: {nim_input_str}")
             row = existing_data.iloc[0]
-            def_nama = str(row['Nama']) if pd.notna(row['Nama']) else ""
+            def_nama = str(row['Nama']) if pd.notna(row['Nama']) and str(row['Nama']) != "" else ""
             def_kelas = str(row['Kelas'])
             def_notes = str(row['Notes']) if pd.notna(row['Notes']) else ""
         else:
             st.info(f"✨ Data belum ada. Mendaftarkan NIM baru: {nim_input_str}")
-            def_nama = ""
-            def_kelas = "A Layo"
-            def_notes = ""
+            def_nama, def_kelas, def_notes = "", "A Layo", ""
             
         with st.form("form_input", clear_on_submit=False):
             st.subheader("Identitas")
             nama = st.text_input("Nama Mahasiswa", value=def_nama)
-            
             idx_kelas = ["A Layo", "B Layo", "A Bukit", "B Bukit"].index(def_kelas) if is_exist and def_kelas in ["A Layo", "B Layo", "A Bukit", "B Bukit"] else 0
             kelas = st.selectbox("Kelas", ["A Layo", "B Layo", "A Bukit", "B Bukit"], index=idx_kelas)
             
             st.subheader("Penilaian Fitur")
             col_wajib, col_opsional = st.columns(2)
             with col_wajib:
-                st.markdown("**Fitur Wajib (Mutlak)**")
                 f_login = st.selectbox("Login", list(opsi_mutlak.keys()))
                 f_crud = st.selectbox("CRUD", list(opsi_mutlak.keys()))
                 f_edit = st.selectbox("Bisa Edit Elemen", list(opsi_mutlak.keys()))
-            
             with col_opsional:
-                st.markdown("**Fitur Opsional (Parsial)**")
                 f_welcome = st.selectbox("Welcome/Landing Page", list(opsi_poin.keys()))
                 f_register = st.selectbox("Register", list(opsi_poin.keys()))
 
-            st.subheader("Catatan & Screenshot")
+            st.subheader("Catatan & Screenshot (Upload sesuai tipe)")
             notes_asdos = st.text_area("Catatan/Notes Asdos:", value=def_notes)
-            gambar_uploads = st.file_uploader("Upload Screenshot Baru (Bisa pilih banyak sekaligus)", 
-                                              type=['png', 'jpg', 'jpeg'], accept_multiple_files=True)
+            
+            st.write("Jika sebelumnya sudah upload, biarkan kosong agar gambar lama tidak tertimpa.")
+            c1, c2, c3, c4, c5 = st.columns(5)
+            with c1: up_login = st.file_uploader("Login", type=['png', 'jpg', 'jpeg'])
+            with c2: up_crud = st.file_uploader("CRUD", type=['png', 'jpg', 'jpeg'])
+            with c3: up_edit = st.file_uploader("Edit Elemen", type=['png', 'jpg', 'jpeg'])
+            with c4: up_welcome = st.file_uploader("Welcome Pg", type=['png', 'jpg', 'jpeg'])
+            with c5: up_register = st.file_uploader("Register", type=['png', 'jpg', 'jpeg'])
             
             submit_draft = st.form_submit_button("Simpan Data (Draft)")
             
@@ -108,41 +120,44 @@ with tab1:
                 if not nama:
                     st.error("Nama wajib diisi!")
                 else:
-                    saved_files = []
-                    # Ambil gambar lama jika ada supaya tidak hilang
-                    if is_exist and pd.notna(row['File_Gambar']) and str(row['File_Gambar']).strip() != "":
-                        saved_files = [x.strip() for x in str(row['File_Gambar']).split(',')]
-                        
-                    # Simpan gambar baru
-                    for img in gambar_uploads:
-                        img_name = f"{nim_input_str}_{len(saved_files)+1}.jpg"
-                        with open(os.path.join(FOLDER_GAMBAR, img_name), "wb") as f:
-                            f.write(img.getbuffer())
-                        saved_files.append(img_name)
-                        
-                    file_gambar_str = ", ".join(saved_files)
+                    # Fungsi untuk handle penyimpanan per kategori
+                    def save_img(uploader_file, img_type):
+                        if uploader_file:
+                            filename = f"{nim_input_str}_{img_type}.jpg"
+                            with open(os.path.join(FOLDER_GAMBAR, filename), "wb") as f:
+                                f.write(uploader_file.getbuffer())
+                            return filename
+                        # Jika tidak upload baru, ambil data lama jika ada
+                        elif is_exist and f'Img_{img_type}' in row and pd.notna(row[f'Img_{img_type}']) and row[f'Img_{img_type}'] != "":
+                            return str(row[f'Img_{img_type}'])
+                        return ""
+
+                    img_log = save_img(up_login, "Login")
+                    img_crd = save_img(up_crud, "CRUD")
+                    img_edt = save_img(up_edit, "Edit")
+                    img_wel = save_img(up_welcome, "Welcome")
+                    img_reg = save_img(up_register, "Register")
                     
                     skor_wajib = opsi_mutlak[f_login] + opsi_mutlak[f_crud] + opsi_mutlak[f_edit]
                     skor_opsional = opsi_poin[f_welcome] + opsi_poin[f_register]
-                    total_skor = skor_wajib + skor_opsional
                     
                     new_data = {
                         "NIM": nim_input_str, "Nama": nama, "Kelas": kelas,
-                        "F_Login": f_login, "F_CRUD": f_crud, "F_Edit": f_edit,
-                        "F_Welcome": f_welcome, "F_Register": f_register,
-                        "Skor_Wajib": skor_wajib, "Skor_Opsional": skor_opsional, "Total_Skor": total_skor,
-                        "Notes": notes_asdos, "File_Gambar": file_gambar_str,
+                        "F_Login": f_login, "F_CRUD": f_crud, "F_Edit": f_edit, "F_Welcome": f_welcome, "F_Register": f_register,
+                        "Skor_Wajib": skor_wajib, "Skor_Opsional": skor_opsional, "Total_Skor": skor_wajib + skor_opsional,
+                        "Notes": notes_asdos, 
+                        "Img_Login": img_log, "Img_CRUD": img_crd, "Img_Edit": img_edt, "Img_Welcome": img_wel, "Img_Register": img_reg,
                         "Plagiasi": "-", "Keputusan_AI": "-", "Status": "Draft"
                     }
                     
                     if is_exist:
-                        for key, val in new_data.items():
+                        for key, val in new_data.items(): 
                             df.loc[df['NIM'] == nim_input_str, key] = val
                     else:
                         df = pd.concat([df, pd.DataFrame([new_data])], ignore_index=True)
                         
                     df.to_csv(FILE_CSV, index=False)
-                    st.success(f"✅ Data {nama} ({nim_input_str}) berhasil disimpan! Silakan cek Tab 3.")
+                    st.success(f"✅ Data {nama} berhasil disimpan!")
 
 # ==========================================
 # TAB 2: FINAL SCORING & AI
@@ -152,62 +167,50 @@ with tab2:
     df_draft = df[df['Status'] == 'Draft']
     
     if df_draft.empty:
-        st.info("Belum ada mahasiswa berstatus Draft yang datanya siap difinalisasi.")
+        st.info("Belum ada mahasiswa berstatus Draft.")
     else:
         nim_final = st.selectbox("Pilih Mahasiswa:", df_draft['NIM'] + " - " + df_draft['Nama'])
         nim_target = nim_final.split(" - ")[0].strip()
-        
         target_data = df_draft[df_draft['NIM'] == nim_target].iloc[0]
         
-        file_gbr = target_data['File_Gambar']
-        student_imgs = [x.strip() for x in str(file_gbr).split(',')] if pd.notna(file_gbr) and str(file_gbr).strip() != '' else []
+        # Kumpulkan semua gambar mahasiswa ini
+        student_imgs = [str(target_data[k]) for k in ["Img_Login", "Img_CRUD", "Img_Edit", "Img_Welcome", "Img_Register"] 
+                        if pd.notna(target_data[k]) and str(target_data[k]).strip() != ""]
         
-        st.write(f"**Nama:** {target_data['Nama']}")
-        st.write(f"**Total Screenshot Tersimpan:** {len(student_imgs)} gambar")
+        st.write(f"**Nama:** {target_data['Nama']} | **Total Screenshot:** {len(student_imgs)}")
         
         if st.button("Jalankan Final Scoring & Cek Plagiasi", type="primary"):
             if not student_imgs:
-                st.error("Mahasiswa ini belum memiliki screenshot sama sekali! Tambahkan lewat Tab 1.")
+                st.error("Mahasiswa ini belum memiliki screenshot!")
             else:
                 with st.spinner("Menganalisis kemiripan gambar dan memanggil AI..."):
-                    terindikasi = False
-                    file_mirip = ""
-                    batas_mirip = 5
-                    
+                    terindikasi, file_mirip = False, ""
                     for img_name in student_imgs:
                         target_path = os.path.join(FOLDER_GAMBAR, img_name)
                         if os.path.exists(target_path):
                             hash_baru = imagehash.phash(Image.open(target_path))
-                            
                             for all_files in os.listdir(FOLDER_GAMBAR):
                                 if all_files not in student_imgs: 
                                     file_lama_path = os.path.join(FOLDER_GAMBAR, all_files)
                                     if os.path.exists(file_lama_path):
-                                        hash_lama = imagehash.phash(Image.open(file_lama_path))
-                                        if hash_baru - hash_lama <= batas_mirip:
-                                            terindikasi = True
-                                            file_mirip = all_files
+                                        if hash_baru - imagehash.phash(Image.open(file_lama_path)) <= 5:
+                                            terindikasi, file_mirip = True, all_files
                                             break
                         if terindikasi: break
                         
                     status_plagiasi = f"TERDETEKSI (Mirip dgn {file_mirip})" if terindikasi else "AMAN"
                     
                     prompt = f"""
-                    Kamu adalah asisten dosen. Berikan keputusan singkat (1-2 paragraf) apakah mahasiswa ini Lulus, Lulus dengan Syarat, atau Diskualifikasi dari tugas Web.
+                    Kamu adalah asisten dosen. Berikan keputusan singkat (1-2 paragraf) apakah mahasiswa Lulus, Lulus dengan Syarat, atau Diskualifikasi dari tugas Web.
                     - Skor Fitur Wajib (Max 3): {target_data['Skor_Wajib']}
                     - Skor Fitur Opsional (Max 2): {target_data['Skor_Opsional']}
                     - Indikasi Plagiasi UI: {status_plagiasi}
                     - Catatan Asdos: {target_data['Notes']}
-                    
-                    Aturan mutlak: 
-                    1. Jika terdeteksi plagiasi, wajib diskualifikasi.
-                    2. Jika Skor Fitur Wajib kurang dari 3, berikan kritik keras dan jangan berikan kelulusan sempurna.
+                    Aturan mutlak: 1. Jika terdeteksi plagiasi, wajib diskualifikasi. 2. Jika Fitur Wajib < 3, kritik keras dan jangan beri kelulusan sempurna.
                     """
-                    
                     try:
-                        respon_ai = model_ai.generate_content(prompt)
-                        keputusan_ai = respon_ai.text
-                    except Exception as e:
+                        keputusan_ai = model_ai.generate_content(prompt).text
+                    except:
                         keputusan_ai = "Gagal memuat AI Decision."
                         
                     df.loc[df['NIM'] == nim_target, 'Plagiasi'] = status_plagiasi
@@ -216,22 +219,50 @@ with tab2:
                     df.to_csv(FILE_CSV, index=False)
                     
                     st.success("Final Scoring Selesai!")
-                    if terindikasi:
-                        st.error(f"⚠️ PLAGIASI UI TERDETEKSI dengan file {file_mirip}")
+                    if terindikasi: st.error(f"⚠️ PLAGIASI UI TERDETEKSI dengan file {file_mirip}")
                     st.info(keputusan_ai)
 
 # ==========================================
-# TAB 3: DATABASE & BACKUP
+# TAB 3: DATABASE
 # ==========================================
 with tab3:
     st.header("Database Rekap Nilai")
-    # Menampilkan tabel tanpa index bawaan Pandas supaya lebih rapi
-    st.dataframe(df[["NIM", "Nama", "Kelas", "Skor_Wajib", "Skor_Opsional", "Total_Skor", "Plagiasi", "Status"]].reset_index(drop=True))
-    
+    st.dataframe(df[["NIM", "Nama", "Kelas", "Skor_Wajib", "Total_Skor", "Plagiasi", "Status"]].reset_index(drop=True))
     with open(FILE_CSV, "rb") as file:
-        st.download_button(
-            label="📥 Download Data Lengkap (CSV)",
-            data=file,
-            file_name="Rekap_Nilai_Web_Angkatan_26.csv",
-            mime="text/csv"
-        )
+        st.download_button("📥 Download Data Lengkap (CSV)", data=file, file_name="Rekap_Nilai.csv", mime="text/csv")
+
+# ==========================================
+# TAB 4: GALERI SCREENSHOT (Filterable)
+# ==========================================
+with tab4:
+    st.header("Galeri Screenshot Mahasiswa")
+    
+    # Filter Tipe Gambar
+    kategori = {"Login": "Img_Login", "CRUD": "Img_CRUD", "Edit Elemen": "Img_Edit", 
+                "Welcome Page": "Img_Welcome", "Register": "Img_Register"}
+    
+    pilihan_kat = st.multiselect("Tampilkan kolom:", list(kategori.keys()), default=list(kategori.keys()))
+    
+    if not df.empty and pilihan_kat:
+        for index, row in df.iterrows():
+            with st.expander(f"👨‍💻 {row['Nama']} - {row['NIM']} ({row['Kelas']})", expanded=True):
+                cols = st.columns(len(pilihan_kat))
+                
+                for i, nama_kat in enumerate(pilihan_kat):
+                    kolom_db = kategori[nama_kat]
+                    with cols[i]:
+                        st.markdown(f"**{nama_kat}**")
+                        nama_file = str(row[kolom_db])
+                        
+                        if pd.notna(row[kolom_db]) and nama_file.strip() != "":
+                            path_gbr = os.path.join(FOLDER_GAMBAR, nama_file)
+                            if os.path.exists(path_gbr):
+                                st.image(Image.open(path_gbr), use_container_width=True)
+                            else:
+                                st.warning("File hilang di server")
+                        else:
+                            st.info("Belum diupload")
+    elif not pilihan_kat:
+        st.info("Silakan pilih minimal 1 kategori pada filter di atas.")
+    else:
+        st.info("Belum ada data mahasiswa.")

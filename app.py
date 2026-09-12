@@ -5,140 +5,226 @@ import imagehash
 import os
 import google.generativeai as genai
 
-# --- KONFIGURASI AI (GEMINI) ---
+# --- KONFIGURASI AI ---
 API_KEY = st.secrets["GEMINI_API_KEY"]
 genai.configure(api_key=API_KEY)
 model_ai = genai.GenerativeModel('gemini-1.5-flash')
 
-# --- KONFIGURASI FOLDER ---
+# --- KONFIGURASI FOLDER & DATABASE ---
 FOLDER_GAMBAR = "screenshot_mahasiswa"
 FILE_CSV = "data_nilai.csv"
 
 if not os.path.exists(FOLDER_GAMBAR):
     os.makedirs(FOLDER_GAMBAR)
 
+COLUMNS = [
+    "NIM", "Nama", "Kelas", "F_Login", "F_CRUD", "F_Edit", "F_Welcome", "F_Register", 
+    "Skor_Wajib", "Skor_Opsional", "Total_Skor", "Notes", "File_Gambar", 
+    "Plagiasi", "Keputusan_AI", "Status"
+]
+
 if not os.path.exists(FILE_CSV):
-    df_awal = pd.DataFrame(columns=["Nama", "NIM", "Kelas", "Total_Skor", "Plagiasi", "Keputusan_AI", "File_Gambar"])
-    df_awal.to_csv(FILE_CSV, index=False)
+    pd.DataFrame(columns=COLUMNS).to_csv(FILE_CSV, index=False)
+
+# Baca Database 
+df = pd.read_csv(FILE_CSV)
+df['NIM'] = df['NIM'].astype(str) # Pastikan NIM berupa teks
 
 st.set_page_config(page_title="Penilaian Web Angkatan 26", layout="wide")
-st.title("Sistem Penilaian Web (AI Decision & Plagiarism Check)")
+st.title("Sistem Penilaian Web (Mode Kolaborasi)")
 
-# Fungsi Cek Plagiasi untuk Multi-Gambar
-def cek_plagiasi(daftar_gambar_upload):
-    batas_mirip = 5 
-    for img_upload in daftar_gambar_upload:
-        hash_baru = imagehash.phash(Image.open(img_upload))
-        for file in os.listdir(FOLDER_GAMBAR):
-            hash_lama = imagehash.phash(Image.open(os.path.join(FOLDER_GAMBAR, file)))
-            if hash_baru - hash_lama <= batas_mirip:
-                return True, file 
-    return False, None
+# --- OPSI BOBOT NILAI ---
+opsi_mutlak = {"Ya (1.0)": 1.0, "Tidak (0.0)": 0.0} 
+opsi_poin = {"Sempurna (1.0)": 1.0, "Sebagian (0.5)": 0.5, "Sedikit (0.25)": 0.25, "Tidak Ada (0.0)": 0.0}
 
-# --- OPSI BOBOT NILAI BARU ---
-opsi_mutlak = {"Ya (1.0)": 1.0, "Tidak (0.0)": 0.0} # Khusus Fitur Wajib
-opsi_poin = {"Sempurna (1.0)": 1.0, "Sebagian (0.5)": 0.5, "Sedikit (0.25)": 0.25, "Tidak Ada (0.0)": 0.0} # Khusus Fitur Opsional
+# --- TABS UI ---
+tab1, tab2, tab3 = st.tabs(["📝 1. Input & Update Data", "🎯 2. Final Scoring AI", "🗄️ 3. Database"])
 
-with st.form("form_nilai"):
-    st.subheader("1. Identitas Mahasiswa")
-    col1, col2 = st.columns(2)
-    with col1:
-        nama = st.text_input("Nama Mahasiswa")
-        nim = st.text_input("NIM")
-    with col2:
-        kelas = st.selectbox("Kelas", ["A Layo", "B Layo", "A Bukit", "B Bukit"])
-
-    st.subheader("2. Penilaian Fitur")
-    col_wajib, col_opsional = st.columns(2)
-    with col_wajib:
-        st.markdown("**Fitur Wajib (Mutlak)**")
-        f_login = st.selectbox("Login", list(opsi_mutlak.keys()), key="f1")
-        f_crud = st.selectbox("CRUD", list(opsi_mutlak.keys()), key="f2")
-        f_edit = st.selectbox("Bisa Edit Elemen", list(opsi_mutlak.keys()), key="f3")
+# ==========================================
+# TAB 1: INPUT & UPDATE (Simpan Sementara)
+# ==========================================
+with tab1:
+    st.header("Tambah Data Baru / Update Screenshot")
+    nim_input = st.text_input("🔍 Masukkan NIM Mahasiswa (Untuk mencari data lama atau buat baru):")
     
-    with col_opsional:
-        st.markdown("**Fitur Opsional (Bisa Parsial)**")
-        f_welcome = st.selectbox("Welcome/Landing Page", list(opsi_poin.keys()), key="f4")
-        f_register = st.selectbox("Register", list(opsi_poin.keys()), key="f5")
+    if nim_input:
+        existing_data = df[df['NIM'] == nim_input]
+        is_exist = not existing_data.empty
+        
+        if is_exist:
+            st.info("✅ Data ditemukan! Anda bisa memperbarui penilaian atau menambahkan screenshot baru (screenshot lama aman).")
+            row = existing_data.iloc[0]
+            def_nama = row['Nama']
+            def_kelas = row['Kelas']
+            def_notes = row['Notes'] if pd.notna(row['Notes']) else ""
+        else:
+            st.info("✨ Data belum ada. Silakan isi form di bawah sebagai data baru.")
+            def_nama = ""
+            def_kelas = "A Layo"
+            def_notes = ""
+            
+        with st.form("form_input"):
+            st.subheader("Identitas")
+            nama = st.text_input("Nama Mahasiswa", value=def_nama)
+            
+            idx_kelas = ["A Layo", "B Layo", "A Bukit", "B Bukit"].index(def_kelas) if is_exist and def_kelas in ["A Layo", "B Layo", "A Bukit", "B Bukit"] else 0
+            kelas = st.selectbox("Kelas", ["A Layo", "B Layo", "A Bukit", "B Bukit"], index=idx_kelas)
+            
+            st.subheader("Penilaian Fitur")
+            col_wajib, col_opsional = st.columns(2)
+            with col_wajib:
+                st.markdown("**Fitur Wajib (Mutlak)**")
+                f_login = st.selectbox("Login", list(opsi_mutlak.keys()))
+                f_crud = st.selectbox("CRUD", list(opsi_mutlak.keys()))
+                f_edit = st.selectbox("Bisa Edit Elemen", list(opsi_mutlak.keys()))
+            
+            with col_opsional:
+                st.markdown("**Fitur Opsional (Parsial)**")
+                f_welcome = st.selectbox("Welcome/Landing Page", list(opsi_poin.keys()))
+                f_register = st.selectbox("Register", list(opsi_poin.keys()))
 
-    st.subheader("3. Catatan Asdos & File")
-    notes_asdos = st.text_area("Catatan/Notes Tambahan (Opsional, tapi penting untuk AI):", 
-                               placeholder="Contoh: Logika CRUD sudah jalan, tapi tampilan berantakan...")
-    
-    gambar_uploads = st.file_uploader("Upload Screenshot Web (Bisa pilih/blok banyak gambar sekaligus)", 
-                                      type=['png', 'jpg', 'jpeg'], accept_multiple_files=True)
-    
-    submit = st.form_submit_button("Generate AI Decision & Simpan")
+            st.subheader("Catatan & Screenshot Tambahan")
+            notes_asdos = st.text_area("Catatan/Notes Asdos:", value=def_notes)
+            gambar_uploads = st.file_uploader("Upload Screenshot Baru (Bisa pilih banyak sekaligus)", 
+                                              type=['png', 'jpg', 'jpeg'], accept_multiple_files=True)
+            
+            submit_draft = st.form_submit_button("Simpan Data Sementara (Draft)")
+            
+            if submit_draft:
+                if not nama:
+                    st.error("Nama wajib diisi!")
+                else:
+                    # Manajemen Gambar
+                    saved_files = []
+                    # Ambil gambar lama jika ada
+                    if is_exist and pd.notna(row['File_Gambar']) and str(row['File_Gambar']).strip() != "":
+                        saved_files = [x.strip() for x in str(row['File_Gambar']).split(',')]
+                        
+                    # Simpan gambar baru dan gabungkan dengan yang lama
+                    for img in gambar_uploads:
+                        img_name = f"{nim_input}_{len(saved_files)+1}.jpg"
+                        with open(os.path.join(FOLDER_GAMBAR, img_name), "wb") as f:
+                            f.write(img.getbuffer())
+                        saved_files.append(img_name)
+                        
+                    file_gambar_str = ", ".join(saved_files)
+                    
+                    # Hitung Skor
+                    skor_wajib = opsi_mutlak[f_login] + opsi_mutlak[f_crud] + opsi_mutlak[f_edit]
+                    skor_opsional = opsi_poin[f_welcome] + opsi_poin[f_register]
+                    total_skor = skor_wajib + skor_opsional
+                    
+                    # Susun Data Baru
+                    new_data = {
+                        "NIM": str(nim_input), "Nama": nama, "Kelas": kelas,
+                        "F_Login": f_login, "F_CRUD": f_crud, "F_Edit": f_edit,
+                        "F_Welcome": f_welcome, "F_Register": f_register,
+                        "Skor_Wajib": skor_wajib, "Skor_Opsional": skor_opsional, "Total_Skor": total_skor,
+                        "Notes": notes_asdos, "File_Gambar": file_gambar_str,
+                        "Plagiasi": "-", "Keputusan_AI": "-", "Status": "Draft"
+                    }
+                    
+                    # Update atau Tambah ke Dataframe
+                    if is_exist:
+                        for key, val in new_data.items():
+                            df.loc[df['NIM'] == str(nim_input), key] = val
+                    else:
+                        df = pd.concat([df, pd.DataFrame([new_data])], ignore_index=True)
+                        
+                    df.to_csv(FILE_CSV, index=False)
+                    st.success("✅ Data berhasil disimpan sementara! Lanjut ke Tab 2 jika semua screenshot & nilai sudah lengkap.")
+                    st.rerun()
 
-# --- PROSES SCORING & AI ---
-if submit:
-    if not (nama and nim and len(gambar_uploads) > 0):
-        st.error("Nama, NIM, dan minimal 1 Screenshot wajib diisi!")
+# ==========================================
+# TAB 2: FINAL SCORING & AI
+# ==========================================
+with tab2:
+    st.header("Jalankan Final Scoring & Pengecekan AI")
+    df_draft = df[df['Status'] == 'Draft']
+    
+    if df_draft.empty:
+        st.info("Belum ada mahasiswa berstatus Draft, atau semua data sudah di-Finalisasi.")
     else:
-        with st.spinner("Sedang memproses gambar dan generate AI Decision..."):
-            # Hitung Skor dengan pemisah dictionary
-            skor_wajib = opsi_mutlak[f_login] + opsi_mutlak[f_crud] + opsi_mutlak[f_edit]
-            skor_opsional = opsi_poin[f_welcome] + opsi_poin[f_register]
-            total_skor = skor_wajib + skor_opsional
-            
-            # Cek Plagiasi
-            terindikasi, file_mirip = cek_plagiasi(gambar_uploads)
-            status_plagiasi = f"TERDETEKSI (Mirip dgn {file_mirip})" if terindikasi else "AMAN"
+        nim_final = st.selectbox("Pilih Mahasiswa yang datanya sudah lengkap:", df_draft['NIM'] + " - " + df_draft['Nama'])
+        nim_target = nim_final.split(" - ")[0]
+        
+        target_data = df_draft[df_draft['NIM'] == nim_target].iloc[0]
+        
+        # Hitung jumlah gambar yang tersimpan
+        student_imgs = [x.strip() for x in str(target_data['File_Gambar']).split(',')] if pd.notna(target_data['File_Gambar']) and str(target_data['File_Gambar']).strip() != '' else []
+        
+        st.write(f"**Nama:** {target_data['Nama']}")
+        st.write(f"**Total Screenshot Tersimpan:** {len(student_imgs)} gambar")
+        
+        if st.button("Jalankan Final Scoring & Cek Plagiasi", type="primary"):
+            if not student_imgs:
+                st.error("Mahasiswa ini belum memiliki screenshot sama sekali! Tambahkan lewat Tab 1.")
+            else:
+                with st.spinner("Menganalisis kemiripan gambar dan memanggil AI..."):
+                    terindikasi = False
+                    file_mirip = ""
+                    batas_mirip = 5
+                    
+                    # Logika Cek Plagiasi (Mengabaikan gambar miliknya sendiri)
+                    for img_name in student_imgs:
+                        target_path = os.path.join(FOLDER_GAMBAR, img_name)
+                        if os.path.exists(target_path):
+                            hash_baru = imagehash.phash(Image.open(target_path))
+                            
+                            for all_files in os.listdir(FOLDER_GAMBAR):
+                                if all_files not in student_imgs: # Syarat penting: Jangan cek dengan gambar sendiri
+                                    file_lama_path = os.path.join(FOLDER_GAMBAR, all_files)
+                                    if os.path.exists(file_lama_path):
+                                        hash_lama = imagehash.phash(Image.open(file_lama_path))
+                                        if hash_baru - hash_lama <= batas_mirip:
+                                            terindikasi = True
+                                            file_mirip = all_files
+                                            break
+                        if terindikasi: break
+                        
+                    status_plagiasi = f"TERDETEKSI (Mirip dgn {file_mirip})" if terindikasi else "AMAN"
+                    
+                    # Logika Prompt AI
+                    prompt = f"""
+                    Kamu adalah asisten dosen. Berikan keputusan singkat (1-2 paragraf) apakah mahasiswa ini Lulus, Lulus dengan Syarat, atau Diskualifikasi dari tugas Web.
+                    - Skor Fitur Wajib (Max 3): {target_data['Skor_Wajib']}
+                    - Skor Fitur Opsional (Max 2): {target_data['Skor_Opsional']}
+                    - Indikasi Plagiasi UI: {status_plagiasi}
+                    - Catatan Asdos: {target_data['Notes']}
+                    
+                    Aturan mutlak: 
+                    1. Jika terdeteksi plagiasi, wajib diskualifikasi.
+                    2. Jika Skor Fitur Wajib kurang dari 3, berikan kritik keras dan jangan berikan kelulusan sempurna.
+                    """
+                    
+                    try:
+                        respon_ai = model_ai.generate_content(prompt)
+                        keputusan_ai = respon_ai.text
+                    except Exception as e:
+                        keputusan_ai = "Gagal memuat AI Decision."
+                        
+                    # Simpan Status Final ke CSV
+                    df.loc[df['NIM'] == str(nim_target), 'Plagiasi'] = status_plagiasi
+                    df.loc[df['NIM'] == str(nim_target), 'Keputusan_AI'] = keputusan_ai
+                    df.loc[df['NIM'] == str(nim_target), 'Status'] = "Final"
+                    df.to_csv(FILE_CSV, index=False)
+                    
+                    st.success(f"Final Scoring untuk {target_data['Nama']} Selesai!")
+                    if terindikasi:
+                        st.error(f"⚠️ PLAGIASI UI TERDETEKSI dengan file {file_mirip}")
+                    st.info(keputusan_ai)
 
-            # Buat Prompt untuk AI (Instruksi Diperketat)
-            prompt = f"""
-            Kamu adalah asisten dosen. Berikan keputusan singkat (1-2 paragraf) apakah mahasiswa ini Lulus, Lulus dengan Syarat, atau Diskualifikasi dari tugas Web.
-            Data Mahasiswa:
-            - Skor Fitur Wajib (Max 3): {skor_wajib}
-            - Skor Fitur Opsional (Max 2): {skor_opsional}
-            - Indikasi Plagiasi UI: {status_plagiasi}
-            - Catatan Asdos: {notes_asdos}
-            
-            Aturan: 
-            - Jika terdeteksi plagiasi, wajib berikan sanksi tegas/diskualifikasi. 
-            - Jika Skor Fitur Wajib kurang dari 3, berikan kritik keras karena fitur mutlak tidak lengkap, dan jangan berikan kelulusan sempurna.
-            Jelaskan alasannya berdasarkan data di atas dan pertimbangkan catatan asdos.
-            """
-            
-            try:
-                respon_ai = model_ai.generate_content(prompt)
-                keputusan_ai = respon_ai.text
-            except Exception as e:
-                keputusan_ai = "Gagal memuat AI Decision."
-
-            # Tampilkan Hasil AI
-            st.write("### 🤖 Hasil Keputusan AI")
-            if terindikasi:
-                st.error(f"⚠️ PLAGIASI UI TERDETEKSI: Terdapat screenshot yang mirip dengan tugas {file_mirip}")
-            st.info(keputusan_ai)
-
-            # Simpan File Gambar & Database
-            nama_file_tersimpan = []
-            for i, img in enumerate(gambar_uploads):
-                nama_file_baru = f"{nim}_{nama}_pic{i+1}.jpg"
-                with open(os.path.join(FOLDER_GAMBAR, nama_file_baru), "wb") as f:
-                    f.write(img.getbuffer())
-                nama_file_tersimpan.append(nama_file_baru)
-            
-            file_gambar_str = ", ".join(nama_file_tersimpan)
-                
-            df = pd.read_csv(FILE_CSV)
-            data_baru = pd.DataFrame([{
-                "Nama": nama, "NIM": nim, "Kelas": kelas, "Total_Skor": total_skor, 
-                "Plagiasi": status_plagiasi, "Keputusan_AI": keputusan_ai, "File_Gambar": file_gambar_str
-            }])
-            df = pd.concat([df, data_baru], ignore_index=True)
-            df.to_csv(FILE_CSV, index=False)
-
-st.write("### Rekap Nilai Sementara")
-st.dataframe(pd.read_csv(FILE_CSV)[["Nama", "NIM", "Kelas", "Total_Skor", "Plagiasi"]])
-
-# --- TOMBOL DOWNLOAD DATA ---
-st.write("### Backup Data")
-with open(FILE_CSV, "rb") as file:
-    st.download_button(
-        label="📥 Download Data Nilai (CSV)",
-        data=file,
-        file_name="Rekap_Nilai_Web_Angkatan_26.csv",
-        mime="text/csv"
-    )
+# ==========================================
+# TAB 3: DATABASE & BACKUP
+# ==========================================
+with tab3:
+    st.header("Database Rekap Nilai")
+    st.dataframe(df[["NIM", "Nama", "Kelas", "Total_Skor", "Plagiasi", "Status"]])
+    
+    with open(FILE_CSV, "rb") as file:
+        st.download_button(
+            label="📥 Download Data Lengkap (CSV)",
+            data=file,
+            file_name="Rekap_Nilai_Web_Angkatan_26.csv",
+            mime="text/csv"
+        )

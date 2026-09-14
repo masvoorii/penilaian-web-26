@@ -79,7 +79,6 @@ st.markdown("""
 
 st.title("Sistem Penilaian Web (Mode Kolaborasi)")
 
-# --- UPDATE 5 STAGES OPSI BOBOT NILAI ---
 opsi_mutlak = {"Ya (1.0)": 1.0, "Tidak (0.0)": 0.0} 
 opsi_poin = {
     "Sempurna (1.0)": 1.0, 
@@ -106,7 +105,8 @@ with tab1:
         if is_exist:
             st.info(f"✅ Data ditemukan! Anda sedang mengupdate data NIM: **{nim_input_str}**")
             row = existing_data.iloc[0]
-            def_nama = str(row['Nama']) if pd.notna(row['Nama']) and str(row['Nama']) != "" else ""
+            # Menampilkan nama dengan format Kapital di form
+            def_nama = str(row['Nama']).title() if pd.notna(row['Nama']) and str(row['Nama']) != "" else ""
             def_kelas = str(row['Kelas'])
             def_notes = str(row['Notes']) if pd.notna(row['Notes']) else ""
         else:
@@ -155,6 +155,9 @@ with tab1:
                 if not nama:
                     st.error("Nama wajib diisi!")
                 else:
+                    # Terapkan fungsi Title Case untuk membersihkan dan mengkapitalisasi input nama
+                    nama_kapital = nama.strip().title()
+
                     def save_img(uploader_file, img_type, del_flag):
                         if uploader_file:
                             filename = f"{nim_input_str}_{img_type}.jpg"
@@ -180,7 +183,7 @@ with tab1:
                     skor_opsional = opsi_poin[f_welcome] + opsi_poin[f_register]
                     
                     new_data = {
-                        "NIM": nim_input_str, "Nama": nama, "Kelas": kelas,
+                        "NIM": nim_input_str, "Nama": nama_kapital, "Kelas": kelas,
                         "F_Login": f_login, "F_CRUD": f_crud, "F_Edit": f_edit, "F_Welcome": f_welcome, "F_Register": f_register,
                         "Skor_Wajib": skor_wajib, "Skor_Opsional": skor_opsional, "Total_Skor": skor_wajib + skor_opsional,
                         "Notes": notes_asdos, 
@@ -194,7 +197,7 @@ with tab1:
                         df = pd.concat([df, pd.DataFrame([new_data])], ignore_index=True)
                         
                     df.to_csv(FILE_CSV, index=False)
-                    st.success(f"✅ Data {nama} berhasil disimpan!")
+                    st.success(f"✅ Data {nama_kapital} berhasil disimpan!")
                     time.sleep(1)
                     st.rerun()
 

@@ -101,7 +101,6 @@ with tab1:
         existing_data = df[df['NIM'] == nim_input_str]
         is_exist = not existing_data.empty
         
-        # Penentuan Default Value jika Data Sudah Ada
         if is_exist:
             st.info(f"✅ Data ditemukan! Anda sedang mengupdate data NIM: **{nim_input_str}**")
             row = existing_data.iloc[0]
@@ -109,7 +108,6 @@ with tab1:
             def_kelas = str(row['Kelas'])
             def_notes = str(row['Notes']) if pd.notna(row['Notes']) else ""
             
-            # Cari index pilihan sebelumnya untuk fitur rubrik
             idx_login = list(opsi_mutlak.keys()).index(row['F_Login']) if row['F_Login'] in opsi_mutlak else 0
             idx_crud = list(opsi_mutlak.keys()).index(row['F_CRUD']) if row['F_CRUD'] in opsi_mutlak else 0
             idx_edit = list(opsi_mutlak.keys()).index(row['F_Edit']) if row['F_Edit'] in opsi_mutlak else 0
@@ -123,8 +121,25 @@ with tab1:
         with st.form("form_input", clear_on_submit=False):
             st.subheader("Identitas")
             nama = st.text_input("Nama Mahasiswa", value=def_nama)
-            idx_kelas = ["A Layo", "B Layo", "A Bukit", "B Bukit"].index(def_kelas) if is_exist and def_kelas in ["A Layo", "B Layo", "A Bukit", "B Bukit"] else 0
-            kelas = st.selectbox("Kelas", ["A Layo", "B Layo", "A Bukit", "B Bukit"], index=idx_kelas)
+            
+            # --- LOGIKA FILTER KELAS GANJIL/GENAP ---
+            if nim_input_str and nim_input_str[-1].isdigit():
+                digit_terakhir = int(nim_input_str[-1])
+                if digit_terakhir % 2 != 0: 
+                    opsi_kelas = ["A Layo", "A Bukit"] # Ganjil
+                else: 
+                    opsi_kelas = ["B Layo", "B Bukit"] # Genap
+            else:
+                opsi_kelas = ["A Layo", "B Layo", "A Bukit", "B Bukit"]
+                
+            # Cegah error jika def_kelas dari database lama tidak ada di opsi_kelas yang baru terfilter
+            if is_exist and def_kelas in opsi_kelas:
+                idx_kelas = opsi_kelas.index(def_kelas)
+            else:
+                idx_kelas = 0
+                
+            kelas = st.selectbox("Kelas", opsi_kelas, index=idx_kelas)
+            # ----------------------------------------
             
             st.subheader("Rubrik Penilaian Fitur")
             
@@ -281,7 +296,6 @@ with tab2:
 with tab3:
     st.header("Database Rekap Nilai")
     
-    # Memperluas kolom tabel yang ditampilkan layaknya Excel (termasuk fitur per poin dan notes)
     kolom_ditampilkan = [
         "NIM", "Nama", "Kelas", 
         "F_Login", "F_CRUD", "F_Edit", "F_Welcome", "F_Register", 

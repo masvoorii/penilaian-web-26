@@ -51,6 +51,36 @@ df = df.drop_duplicates(subset=['NIM'], keep='last')
 
 st.set_page_config(page_title="Penilaian Web Angkatan 26", layout="wide")
 st.title("Sistem Penilaian Web (Mode Kolaborasi)")
+# --- CUSTOM CSS INJECTION ---
+st.markdown("""
+<style>
+    /* 1. Menyembunyikan menu hamburger bawaan Streamlit di pojok kanan atas */
+    #MainMenu {visibility: hidden;}
+    
+    /* 2. Menyembunyikan tulisan watermark 'Made with Streamlit' di paling bawah */
+    footer {visibility: hidden;}
+    
+    /* 3. Mengubah warna tombol yang bertipe "Primary" (tombol Final Scoring) */
+    .stButton>button[kind="primary"] {
+        background-color: #d11a2a; /* Merah gelap */
+        color: white;
+        border-radius: 8px;
+        border: none;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    }
+    
+    /* 4. Mengubah warna tombol biasa (tombol Simpan Draft) saat di-hover */
+    .stButton>button[kind="secondary"]:hover {
+        border-color: #0056b3;
+        color: #0056b3;
+    }
+    
+    /* 5. Mengubah warna background utama (opsional) */
+    .stApp {
+        background-color: #f8f9fa;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 opsi_mutlak = {"Ya (1.0)": 1.0, "Tidak (0.0)": 0.0} 
 opsi_poin = {"Sempurna (1.0)": 1.0, "Sebagian (0.5)": 0.5, "Sedikit (0.25)": 0.25, "Tidak Ada (0.0)": 0.0}

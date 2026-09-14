@@ -1,12 +1,3 @@
 [theme]
-# Warna background utama (misal: putih gelap)
-backgroundColor = "#f8f9fa"
-
-# Warna background form/kotak input
-secondaryBackgroundColor = "#e9ecef"
-
-# Warna teks utama (hitam gelap supaya terbaca)
-textColor = "#212529"
-
-# Warna utama untuk tombol/slider/loading (misal: Merah khas UNSRI)
+base = "dark"
 primaryColor = "#d11a2a"

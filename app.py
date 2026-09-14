@@ -65,8 +65,6 @@ for col in kolom_teks:
 
 df['NIM'] = df['NIM'].apply(perbaiki_nim)
 df = df.drop_duplicates(subset=['NIM'], keep='last')
-
-# Mengurutkan database berdasarkan NIM sejak awal dimuat
 df = df.sort_values(by='NIM')
 
 st.set_page_config(page_title="Penilaian Web Angkatan 26", layout="wide")
@@ -103,15 +101,24 @@ with tab1:
         existing_data = df[df['NIM'] == nim_input_str]
         is_exist = not existing_data.empty
         
+        # Penentuan Default Value jika Data Sudah Ada
         if is_exist:
             st.info(f"✅ Data ditemukan! Anda sedang mengupdate data NIM: **{nim_input_str}**")
             row = existing_data.iloc[0]
             def_nama = str(row['Nama']).title() if pd.notna(row['Nama']) and str(row['Nama']) != "" else ""
             def_kelas = str(row['Kelas'])
             def_notes = str(row['Notes']) if pd.notna(row['Notes']) else ""
+            
+            # Cari index pilihan sebelumnya untuk fitur rubrik
+            idx_login = list(opsi_mutlak.keys()).index(row['F_Login']) if row['F_Login'] in opsi_mutlak else 0
+            idx_crud = list(opsi_mutlak.keys()).index(row['F_CRUD']) if row['F_CRUD'] in opsi_mutlak else 0
+            idx_edit = list(opsi_mutlak.keys()).index(row['F_Edit']) if row['F_Edit'] in opsi_mutlak else 0
+            idx_welcome = list(opsi_poin.keys()).index(row['F_Welcome']) if row['F_Welcome'] in opsi_poin else 0
+            idx_register = list(opsi_poin.keys()).index(row['F_Register']) if row['F_Register'] in opsi_poin else 0
         else:
             st.info(f"✨ Data belum ada. Mendaftarkan NIM baru: **{nim_input_str}**")
             def_nama, def_kelas, def_notes = "", "A Layo", ""
+            idx_login = idx_crud = idx_edit = idx_welcome = idx_register = 0
             
         with st.form("form_input", clear_on_submit=False):
             st.subheader("Identitas")
@@ -119,15 +126,18 @@ with tab1:
             idx_kelas = ["A Layo", "B Layo", "A Bukit", "B Bukit"].index(def_kelas) if is_exist and def_kelas in ["A Layo", "B Layo", "A Bukit", "B Bukit"] else 0
             kelas = st.selectbox("Kelas", ["A Layo", "B Layo", "A Bukit", "B Bukit"], index=idx_kelas)
             
-            st.subheader("Penilaian Fitur")
-            col_wajib, col_opsional = st.columns(2)
-            with col_wajib:
-                f_login = st.selectbox("Login", list(opsi_mutlak.keys()))
-                f_crud = st.selectbox("CRUD", list(opsi_mutlak.keys()))
-                f_edit = st.selectbox("Bisa Edit Elemen", list(opsi_mutlak.keys()))
-            with col_opsional:
-                f_welcome = st.selectbox("Welcome/Landing Page", list(opsi_poin.keys()))
-                f_register = st.selectbox("Register", list(opsi_poin.keys()))
+            st.subheader("Rubrik Penilaian Fitur")
+            
+            st.markdown("**Fitur Wajib (Mutlak)**")
+            f_login = st.radio("1. Fitur Login", list(opsi_mutlak.keys()), index=idx_login, horizontal=True)
+            f_crud = st.radio("2. Fitur CRUD", list(opsi_mutlak.keys()), index=idx_crud, horizontal=True)
+            f_edit = st.radio("3. Bisa Edit Elemen", list(opsi_mutlak.keys()), index=idx_edit, horizontal=True)
+            
+            st.markdown("---")
+            st.markdown("**Fitur Opsional (Bisa Parsial)**")
+            f_welcome = st.radio("4. Welcome/Landing Page", list(opsi_poin.keys()), index=idx_welcome, horizontal=True)
+            f_register = st.radio("5. Fitur Register", list(opsi_poin.keys()), index=idx_register, horizontal=True)
+            st.markdown("---")
 
             st.subheader("Catatan & Screenshot")
             notes_asdos = st.text_area("Catatan/Notes Asdos:", value=def_notes)
@@ -195,7 +205,6 @@ with tab1:
                     else:
                         df = pd.concat([df, pd.DataFrame([new_data])], ignore_index=True)
                         
-                    # Mengurutkan ulang sebelum disimpan ke CSV
                     df = df.sort_values(by='NIM')
                     df.to_csv(FILE_CSV, index=False)
                     st.success(f"✅ Data {nama_kapital} berhasil disimpan!")
@@ -259,7 +268,6 @@ with tab2:
                     df.loc[df['NIM'] == nim_target, 'Keputusan_AI'] = keputusan_ai
                     df.loc[df['NIM'] == nim_target, 'Status'] = "Final"
                     
-                    # Mengurutkan ulang sebelum disimpan ke CSV
                     df = df.sort_values(by='NIM')
                     df.to_csv(FILE_CSV, index=False)
                     
@@ -272,7 +280,14 @@ with tab2:
 # ==========================================
 with tab3:
     st.header("Database Rekap Nilai")
-    st.dataframe(df[["NIM", "Nama", "Kelas", "Skor_Wajib", "Total_Skor", "Plagiasi", "Status"]].reset_index(drop=True))
+    
+    # Memperluas kolom tabel yang ditampilkan layaknya Excel (termasuk fitur per poin dan notes)
+    kolom_ditampilkan = [
+        "NIM", "Nama", "Kelas", 
+        "F_Login", "F_CRUD", "F_Edit", "F_Welcome", "F_Register", 
+        "Total_Skor", "Plagiasi", "Notes", "Status"
+    ]
+    st.dataframe(df[kolom_ditampilkan].reset_index(drop=True))
     
     col_dl, col_up = st.columns(2)
     with col_dl:
@@ -290,7 +305,6 @@ with tab3:
                             df_import[col] = df_import[col].astype(str).replace('nan', '')
                     df_import['NIM'] = df_import['NIM'].apply(perbaiki_nim)
                     
-                    # Mengurutkan ulang saat file di-import
                     df_import = df_import.sort_values(by='NIM')
                     df_import.to_csv(FILE_CSV, index=False)
                     

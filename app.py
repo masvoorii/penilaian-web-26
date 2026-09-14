@@ -28,12 +28,30 @@ COLUMNS = [
 if not os.path.exists(FILE_CSV):
     pd.DataFrame(columns=COLUMNS).to_csv(FILE_CSV, index=False)
 
+# --- FUNGSI AUTO-NIM & CLEANING ---
 def perbaiki_nim(nim_val):
     n = str(nim_val).strip()
-    if n.endswith('.0'): n = n[:-2]
-    if n.startswith('304'): n = '0' + n
+    if n.endswith('.0'): 
+        n = n[:-2]
+        
+    # Fitur Auto-Complete 3 Digit NIM
+    if n.isdigit() and len(n) <= 3:
+        n = n.zfill(3) 
+        num = int(n)
+        if 1 <= num <= 35:
+            n = f"03041182631{n}"
+        elif 36 <= num <= 102:
+            n = f"03041282631{n}"
+        elif 103 <= num <= 173:
+            n = f"03041382631{n}"
+            
+    # Perbaikan jika angka 0 di depan terpotong Excel
+    elif n.startswith('304'): 
+        n = '0' + n
+        
     return n
 
+# Membaca & Menyiapkan Database Awal
 df = pd.read_csv(FILE_CSV)
 
 for col in COLUMNS:
@@ -52,7 +70,6 @@ df = df.drop_duplicates(subset=['NIM'], keep='last')
 
 st.set_page_config(page_title="Penilaian Web Angkatan 26", layout="wide")
 
-# Sembunyikan menu bawaan yang tidak perlu
 st.markdown("""
 <style>
     #MainMenu {visibility: hidden;}
@@ -62,8 +79,15 @@ st.markdown("""
 
 st.title("Sistem Penilaian Web (Mode Kolaborasi)")
 
+# --- UPDATE 5 STAGES OPSI BOBOT NILAI ---
 opsi_mutlak = {"Ya (1.0)": 1.0, "Tidak (0.0)": 0.0} 
-opsi_poin = {"Sempurna (1.0)": 1.0, "Sebagian (0.5)": 0.5, "Sedikit (0.25)": 0.25, "Tidak Ada (0.0)": 0.0}
+opsi_poin = {
+    "Sempurna (1.0)": 1.0, 
+    "Hampir Sempurna (0.75)": 0.75, 
+    "Sebagian (0.5)": 0.5, 
+    "Sedikit (0.25)": 0.25, 
+    "Tidak Ada (0.0)": 0.0
+}
 
 tab1, tab2, tab3, tab4 = st.tabs(["📝 1. Input & Update", "🎯 2. Final Scoring AI", "🗄️ 3. Database", "🖼️ 4. Galeri Screenshot"])
 
@@ -72,7 +96,7 @@ tab1, tab2, tab3, tab4 = st.tabs(["📝 1. Input & Update", "🎯 2. Final Scori
 # ==========================================
 with tab1:
     st.header("Tambah Data Baru / Update Screenshot")
-    nim_input = st.text_input("🔍 Masukkan NIM Mahasiswa (Tekan Enter):")
+    nim_input = st.text_input("🔍 Masukkan NIM (Bisa full atau cukup 3 digit terakhir lalu Enter):")
     
     if nim_input:
         nim_input_str = perbaiki_nim(nim_input)
@@ -80,13 +104,13 @@ with tab1:
         is_exist = not existing_data.empty
         
         if is_exist:
-            st.info(f"✅ Data ditemukan! Anda sedang mengupdate data NIM: {nim_input_str}")
+            st.info(f"✅ Data ditemukan! Anda sedang mengupdate data NIM: **{nim_input_str}**")
             row = existing_data.iloc[0]
             def_nama = str(row['Nama']) if pd.notna(row['Nama']) and str(row['Nama']) != "" else ""
             def_kelas = str(row['Kelas'])
             def_notes = str(row['Notes']) if pd.notna(row['Notes']) else ""
         else:
-            st.info(f"✨ Data belum ada. Mendaftarkan NIM baru: {nim_input_str}")
+            st.info(f"✨ Data belum ada. Mendaftarkan NIM baru: **{nim_input_str}**")
             def_nama, def_kelas, def_notes = "", "A Layo", ""
             
         with st.form("form_input", clear_on_submit=False):
@@ -105,7 +129,7 @@ with tab1:
                 f_welcome = st.selectbox("Welcome/Landing Page", list(opsi_poin.keys()))
                 f_register = st.selectbox("Register", list(opsi_poin.keys()))
 
-            st.subheader("Catatan & Screenshot (Upload sesuai tipe)")
+            st.subheader("Catatan & Screenshot")
             notes_asdos = st.text_area("Catatan/Notes Asdos:", value=def_notes)
             
             st.write("Jika ingin mengganti, langsung upload gambar baru. Jika ingin menghapus total, centang '🗑️ Hapus foto lama'.")
@@ -195,7 +219,7 @@ with tab2:
         
         if st.button("Jalankan Final Scoring & Cek Plagiasi", type="primary"):
             if not student_imgs:
-                st.error("Mahasiswa ini belum memiliki screenshot!")
+                st.error("Mahasiswa ini belum memiliki screenshot yang valid di server!")
             else:
                 with st.spinner("Menganalisis kemiripan gambar dan memanggil AI..."):
                     terindikasi, file_mirip = False, ""
@@ -237,13 +261,34 @@ with tab2:
                     st.info(keputusan_ai)
 
 # ==========================================
-# TAB 3: DATABASE & DELETE
+# TAB 3: DATABASE & IMPORT/EXPORT
 # ==========================================
 with tab3:
     st.header("Database Rekap Nilai")
     st.dataframe(df[["NIM", "Nama", "Kelas", "Skor_Wajib", "Total_Skor", "Plagiasi", "Status"]].reset_index(drop=True))
-    with open(FILE_CSV, "rb") as file:
-        st.download_button("📥 Download Data Lengkap (CSV)", data=file, file_name="Rekap_Nilai.csv", mime="text/csv")
+    
+    col_dl, col_up = st.columns(2)
+    with col_dl:
+        with open(FILE_CSV, "rb") as file:
+            st.download_button("📥 Download Data Lengkap (CSV)", data=file, file_name="Rekap_Nilai.csv", mime="text/csv")
+            
+    with col_up:
+        uploaded_csv = st.file_uploader("📤 Import/Restore File CSV Lama", type=['csv'])
+        if uploaded_csv is not None:
+            if st.button("Restore Database"):
+                try:
+                    df_import = pd.read_csv(uploaded_csv)
+                    for col in kolom_teks:
+                        if col in df_import.columns:
+                            df_import[col] = df_import[col].astype(str).replace('nan', '')
+                    df_import['NIM'] = df_import['NIM'].apply(perbaiki_nim)
+                    
+                    df_import.to_csv(FILE_CSV, index=False)
+                    st.success("✅ Database berhasil di-restore! Halaman akan dimuat ulang...")
+                    time.sleep(2)
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Gagal Import: {e}")
         
     st.markdown("---")
     st.subheader("🗑️ Hapus Data Mahasiswa")
@@ -253,8 +298,6 @@ with tab3:
         
         if st.button("Hapus Data", type="primary"):
             row_to_delete = df[df['NIM'] == nim_to_delete].iloc[0]
-            
-            # Hapus foto-fotonya dari folder server dulu
             for img_col in ["Img_Login", "Img_CRUD", "Img_Edit", "Img_Welcome", "Img_Register"]:
                 img_file = str(row_to_delete[img_col])
                 if pd.notna(img_file) and img_file.strip() != "":
@@ -262,13 +305,12 @@ with tab3:
                     if os.path.exists(img_path):
                         os.remove(img_path)
             
-            # Hapus data dari file CSV
             df = df[df['NIM'] != nim_to_delete]
             df.to_csv(FILE_CSV, index=False)
             
             st.success(f"Data {hapus_nim} berhasil dihapus beserta fotonya!")
-            time.sleep(1) # Jeda sedikit biar pesan suksesnya sempat terbaca
-            st.rerun()    # Refresh halaman
+            time.sleep(1)
+            st.rerun()
     else:
         st.info("Database masih kosong.")
 
@@ -297,7 +339,7 @@ with tab4:
                             if os.path.exists(path_gbr):
                                 st.image(Image.open(path_gbr), use_container_width=True)
                             else:
-                                st.warning("File hilang")
+                                st.warning("File foto belum di-reupload")
                         else:
                             st.info("Kosong")
     elif not pilihan_kat:

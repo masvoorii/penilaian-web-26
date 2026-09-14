@@ -34,7 +34,6 @@ def perbaiki_nim(nim_val):
     if n.endswith('.0'): 
         n = n[:-2]
         
-    # Fitur Auto-Complete 3 Digit NIM
     if n.isdigit() and len(n) <= 3:
         n = n.zfill(3) 
         num = int(n)
@@ -45,7 +44,6 @@ def perbaiki_nim(nim_val):
         elif 103 <= num <= 173:
             n = f"03041382631{n}"
             
-    # Perbaikan jika angka 0 di depan terpotong Excel
     elif n.startswith('304'): 
         n = '0' + n
         
@@ -67,6 +65,9 @@ for col in kolom_teks:
 
 df['NIM'] = df['NIM'].apply(perbaiki_nim)
 df = df.drop_duplicates(subset=['NIM'], keep='last')
+
+# Mengurutkan database berdasarkan NIM sejak awal dimuat
+df = df.sort_values(by='NIM')
 
 st.set_page_config(page_title="Penilaian Web Angkatan 26", layout="wide")
 
@@ -105,7 +106,6 @@ with tab1:
         if is_exist:
             st.info(f"✅ Data ditemukan! Anda sedang mengupdate data NIM: **{nim_input_str}**")
             row = existing_data.iloc[0]
-            # Menampilkan nama dengan format Kapital di form
             def_nama = str(row['Nama']).title() if pd.notna(row['Nama']) and str(row['Nama']) != "" else ""
             def_kelas = str(row['Kelas'])
             def_notes = str(row['Notes']) if pd.notna(row['Notes']) else ""
@@ -155,7 +155,6 @@ with tab1:
                 if not nama:
                     st.error("Nama wajib diisi!")
                 else:
-                    # Terapkan fungsi Title Case untuk membersihkan dan mengkapitalisasi input nama
                     nama_kapital = nama.strip().title()
 
                     def save_img(uploader_file, img_type, del_flag):
@@ -196,6 +195,8 @@ with tab1:
                     else:
                         df = pd.concat([df, pd.DataFrame([new_data])], ignore_index=True)
                         
+                    # Mengurutkan ulang sebelum disimpan ke CSV
+                    df = df.sort_values(by='NIM')
                     df.to_csv(FILE_CSV, index=False)
                     st.success(f"✅ Data {nama_kapital} berhasil disimpan!")
                     time.sleep(1)
@@ -257,6 +258,9 @@ with tab2:
                     df.loc[df['NIM'] == nim_target, 'Plagiasi'] = status_plagiasi
                     df.loc[df['NIM'] == nim_target, 'Keputusan_AI'] = keputusan_ai
                     df.loc[df['NIM'] == nim_target, 'Status'] = "Final"
+                    
+                    # Mengurutkan ulang sebelum disimpan ke CSV
+                    df = df.sort_values(by='NIM')
                     df.to_csv(FILE_CSV, index=False)
                     
                     st.success("Final Scoring Selesai!")
@@ -286,7 +290,10 @@ with tab3:
                             df_import[col] = df_import[col].astype(str).replace('nan', '')
                     df_import['NIM'] = df_import['NIM'].apply(perbaiki_nim)
                     
+                    # Mengurutkan ulang saat file di-import
+                    df_import = df_import.sort_values(by='NIM')
                     df_import.to_csv(FILE_CSV, index=False)
+                    
                     st.success("✅ Database berhasil di-restore! Halaman akan dimuat ulang...")
                     time.sleep(2)
                     st.rerun()

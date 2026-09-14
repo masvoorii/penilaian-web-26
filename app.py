@@ -3,6 +3,7 @@ import pandas as pd
 from PIL import Image
 import imagehash
 import os
+import time
 import google.generativeai as genai
 
 # --- KONFIGURASI AI ---
@@ -50,25 +51,16 @@ df['NIM'] = df['NIM'].apply(perbaiki_nim)
 df = df.drop_duplicates(subset=['NIM'], keep='last')
 
 st.set_page_config(page_title="Penilaian Web Angkatan 26", layout="wide")
-st.title("Sistem Penilaian Web (Mode Kolaborasi)")
-# --- CUSTOM CSS INJECTION ---
+
+# Sembunyikan menu bawaan yang tidak perlu
 st.markdown("""
 <style>
-    /* 1. Menyembunyikan menu hamburger bawaan Streamlit di pojok kanan atas */
     #MainMenu {visibility: hidden;}
-    
-    /* 2. Menyembunyikan tulisan watermark 'Made with Streamlit' di paling bawah */
     footer {visibility: hidden;}
-    
-    /* 3. Mengubah warna tombol yang bertipe "Primary" (tombol Final Scoring) */
-    .stButton>button[kind="primary"] {
-        background-color: #d11a2a;
-        color: white;
-        border-radius: 8px;
-        border: none;
-    }
 </style>
 """, unsafe_allow_html=True)
+
+st.title("Sistem Penilaian Web (Mode Kolaborasi)")
 
 opsi_mutlak = {"Ya (1.0)": 1.0, "Tidak (0.0)": 0.0} 
 opsi_poin = {"Sempurna (1.0)": 1.0, "Sebagian (0.5)": 0.5, "Sedikit (0.25)": 0.25, "Tidak Ada (0.0)": 0.0}
@@ -118,14 +110,12 @@ with tab1:
             
             st.write("Jika ingin mengganti, langsung upload gambar baru. Jika ingin menghapus total, centang '🗑️ Hapus foto lama'.")
             
-            # Fungsi untuk render form upload beserta tombol hapus jika sudah ada file
             def render_uploader(col, label, img_type):
                 with col:
                     up_file = st.file_uploader(label, type=['png', 'jpg', 'jpeg'])
                     del_flag = False
-                    # Jika data sudah ada dan file gambarnya tersimpan
                     if is_exist and f'Img_{img_type}' in row and pd.notna(row[f'Img_{img_type}']) and row[f'Img_{img_type}'] != "":
-                        del_flag = st.checkbox(f"🗑️ Hapus foto {label} lama", key=f"del_{img_type}")
+                        del_flag = st.checkbox(f"🗑️ Hapus foto lama", key=f"del_{img_type}")
                     return up_file, del_flag
 
             c1, c2, c3, c4, c5 = st.columns(5)
@@ -141,21 +131,17 @@ with tab1:
                 if not nama:
                     st.error("Nama wajib diisi!")
                 else:
-                    # Fungsi untuk handle penyimpanan & penghapusan per kategori
                     def save_img(uploader_file, img_type, del_flag):
-                        # Jika ada file baru yang diupload, timpa yang lama
                         if uploader_file:
                             filename = f"{nim_input_str}_{img_type}.jpg"
                             with open(os.path.join(FOLDER_GAMBAR, filename), "wb") as f:
                                 f.write(uploader_file.getbuffer())
                             return filename
-                        # Jika dicentang hapus, hapus file dari server & kosongkan dari database
                         elif del_flag:
                             old_file = os.path.join(FOLDER_GAMBAR, f"{nim_input_str}_{img_type}.jpg")
                             if os.path.exists(old_file):
-                                os.remove(old_file) # Bersihkan dari server
+                                os.remove(old_file)
                             return ""
-                        # Jika tidak upload baru dan tidak dicentang hapus, pertahankan yang lama
                         elif is_exist and f'Img_{img_type}' in row and pd.notna(row[f'Img_{img_type}']) and row[f'Img_{img_type}'] != "":
                             return str(row[f'Img_{img_type}'])
                         return ""
@@ -185,6 +171,8 @@ with tab1:
                         
                     df.to_csv(FILE_CSV, index=False)
                     st.success(f"✅ Data {nama} berhasil disimpan!")
+                    time.sleep(1)
+                    st.rerun()
 
 # ==========================================
 # TAB 2: FINAL SCORING & AI
@@ -249,20 +237,46 @@ with tab2:
                     st.info(keputusan_ai)
 
 # ==========================================
-# TAB 3: DATABASE
+# TAB 3: DATABASE & DELETE
 # ==========================================
 with tab3:
     st.header("Database Rekap Nilai")
     st.dataframe(df[["NIM", "Nama", "Kelas", "Skor_Wajib", "Total_Skor", "Plagiasi", "Status"]].reset_index(drop=True))
     with open(FILE_CSV, "rb") as file:
         st.download_button("📥 Download Data Lengkap (CSV)", data=file, file_name="Rekap_Nilai.csv", mime="text/csv")
+        
+    st.markdown("---")
+    st.subheader("🗑️ Hapus Data Mahasiswa")
+    if not df.empty:
+        hapus_nim = st.selectbox("Pilih data yang ingin dihapus permanen:", df['NIM'] + " - " + df['Nama'])
+        nim_to_delete = hapus_nim.split(" - ")[0].strip()
+        
+        if st.button("Hapus Data", type="primary"):
+            row_to_delete = df[df['NIM'] == nim_to_delete].iloc[0]
+            
+            # Hapus foto-fotonya dari folder server dulu
+            for img_col in ["Img_Login", "Img_CRUD", "Img_Edit", "Img_Welcome", "Img_Register"]:
+                img_file = str(row_to_delete[img_col])
+                if pd.notna(img_file) and img_file.strip() != "":
+                    img_path = os.path.join(FOLDER_GAMBAR, img_file)
+                    if os.path.exists(img_path):
+                        os.remove(img_path)
+            
+            # Hapus data dari file CSV
+            df = df[df['NIM'] != nim_to_delete]
+            df.to_csv(FILE_CSV, index=False)
+            
+            st.success(f"Data {hapus_nim} berhasil dihapus beserta fotonya!")
+            time.sleep(1) # Jeda sedikit biar pesan suksesnya sempat terbaca
+            st.rerun()    # Refresh halaman
+    else:
+        st.info("Database masih kosong.")
 
 # ==========================================
-# TAB 4: GALERI SCREENSHOT (Filterable)
+# TAB 4: GALERI SCREENSHOT
 # ==========================================
 with tab4:
     st.header("Galeri Screenshot Mahasiswa")
-    
     kategori = {"Login": "Img_Login", "CRUD": "Img_CRUD", "Edit Elemen": "Img_Edit", 
                 "Welcome Page": "Img_Welcome", "Register": "Img_Register"}
     
@@ -272,7 +286,6 @@ with tab4:
         for index, row in df.iterrows():
             with st.expander(f"👨‍💻 {row['Nama']} - {row['NIM']} ({row['Kelas']})", expanded=True):
                 cols = st.columns(len(pilihan_kat))
-                
                 for i, nama_kat in enumerate(pilihan_kat):
                     kolom_db = kategori[nama_kat]
                     with cols[i]:
@@ -284,10 +297,10 @@ with tab4:
                             if os.path.exists(path_gbr):
                                 st.image(Image.open(path_gbr), use_container_width=True)
                             else:
-                                st.warning("File hilang di server")
+                                st.warning("File hilang")
                         else:
-                            st.info("Belum diupload")
+                            st.info("Kosong")
     elif not pilihan_kat:
-        st.info("Silakan pilih minimal 1 kategori pada filter di atas.")
+        st.info("Pilih kategori filter.")
     else:
-        st.info("Belum ada data mahasiswa.")
+        st.info("Belum ada data.")
